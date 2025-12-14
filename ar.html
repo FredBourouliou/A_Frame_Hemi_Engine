@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Moteur Hemi - AR Interactive</title>
+
+  <!-- A-Frame + AR.js -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+
+    /* Force les elements UI au-dessus du canvas AR (Android fix) */
+    #ar-ui, #instructions, #hotspot-info {
+      position: fixed !important;
+      z-index: 999999 !important;
+      -webkit-transform: translateZ(0);
+      transform: translateZ(0);
+      pointer-events: auto !important;
+    }
+
+    /* UI Overlay */
+    #ar-ui {
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 10px;
+      padding-top: max(10px, env(safe-area-inset-top));
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      background: rgba(0,0,0,0.7);
+    }
+
+    .ar-btn {
+      padding: 10px 16px;
+      background: rgba(233, 69, 96, 0.95);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    .ar-btn.active {
+      background: #4CAF50;
+    }
+
+    .ar-btn:active {
+      opacity: 0.8;
+    }
+
+    #instructions {
+      bottom: 20px;
+      bottom: max(20px, env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%) translateZ(0);
+      -webkit-transform: translateX(-50%) translateZ(0);
+      padding: 12px 20px;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      border-radius: 10px;
+      font-size: 13px;
+      text-align: center;
+      max-width: 90%;
+    }
+
+    #instructions a {
+      color: #7ec8e3;
+    }
+
+    #hotspot-info {
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateZ(0);
+      -webkit-transform: translateX(-50%) translateZ(0);
+      padding: 15px 20px;
+      background: rgba(22, 33, 62, 0.98);
+      color: white;
+      border-radius: 10px;
+      font-size: 14px;
+      text-align: center;
+      max-width: 85%;
+      display: none;
+      border: 1px solid #e94560;
+    }
+
+    #hotspot-info h4 {
+      color: #e94560;
+      margin: 0 0 8px 0;
+    }
+
+    #hotspot-info p {
+      margin: 0;
+      color: #ccc;
+    }
+
+    /* Cacher bouton VR A-Frame */
+    .a-enter-vr { display: none !important; }
+
+    /* S'assurer que le canvas AR ne bloque pas les events */
+    a-scene, .a-canvas {
+      z-index: 0 !important;
+    }
+  </style>
+</head>
+<body>
+  <!-- UI AR -->
+  <div id="ar-ui">
+    <a href="index.html" class="ar-btn">← Retour</a>
+    <button class="ar-btn active" onclick="setState('a')">A - Complet</button>
+    <button class="ar-btn" onclick="setState('b')">B - Sans blower</button>
+    <button class="ar-btn" onclick="setState('c')">C - Bloc</button>
+    <button class="ar-btn" onclick="resetRotation()">⟲ Reset</button>
+  </div>
+
+  <div id="instructions">
+    Pointez vers le <a href="https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/images/hiro.png" target="_blank">marqueur Hiro</a><br>
+    <small>Glisser : rotation 3D | Pincer : zoom | Tap : hotspots</small>
+  </div>
+
+  <div id="hotspot-info">
+    <h4 id="hotspot-title"></h4>
+    <p id="hotspot-desc"></p>
+  </div>
+
+  <!-- Scene AR.js -->
+  <a-scene
+    embedded
+    arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;"
+    renderer="logarithmicDepthBuffer: true; colorManagement: true"
+    vr-mode-ui="enabled: false"
+  >
+    <a-light type="ambient" color="#fff" intensity="1.2"></a-light>
+    <a-light type="directional" color="#fff" intensity="0.8" position="1 1 1"></a-light>
+
+    <!-- Marqueur Hiro -->
+    <a-marker preset="hiro" id="hiro-marker">
+      <!-- Modele - rotation directe sur Y -->
+      <a-entity
+        id="ar-engine"
+        gltf-model="assets/models/hemi_state_a_full.glb"
+        position="0 0 0"
+      ></a-entity>
+
+      <!-- Hotspots - meme rotation que le modele -->
+      <a-entity id="ar-hotspots">
+        <a-sphere id="hs-blower" class="ar-hotspot" position="0 0.5 0" radius="0.06" color="#e94560"
+          material="emissive: #e94560; emissiveIntensity: 0.5"
+          data-label="Blower" data-desc="Compresseur volumetrique type Roots qui force l'admission d'air."></a-sphere>
+        <a-sphere id="hs-culasse" class="ar-hotspot" position="-0.25 0.15 0" radius="0.06" color="#e94560"
+          material="emissive: #e94560; emissiveIntensity: 0.5"
+          data-label="Culasse" data-desc="Chambre de combustion hemispherique."></a-sphere>
+        <a-sphere id="hs-echap" class="ar-hotspot" position="0.25 0.1 0.15" radius="0.06" color="#ff6b00"
+          material="emissive: #ff6b00; emissiveIntensity: 0.5"
+          data-label="Echappement" data-desc="Collecteur d'echappement tubulaire."></a-sphere>
+      </a-entity>
+    </a-marker>
+
+    <a-entity camera></a-entity>
+  </a-scene>
+
+  <script>
+    var currentState = 'a';
+    var rotationX = 0;
+    var rotationY = 0;
+    var currentScale = 1;
+    var engineEntity = null;
+    var hotspotsContainer = null;
+    var touchStartX = 0;
+    var touchStartY = 0;
+    var initialPinchDistance = 0;
+    var isPinching = false;
+    var isDragging = false;
+    var dragStartTime = 0;
+
+    var MODELS = {
+      'a': 'assets/models/hemi_state_a_full.glb',
+      'b': 'assets/models/hemi_state_b_no_blower.glb',
+      'c': 'assets/models/hemi_state_c_bloc.glb'
+    };
+
+    var HOTSPOTS_VISIBLE = {
+      'a': ['hs-blower', 'hs-culasse', 'hs-echap'],
+      'b': ['hs-culasse', 'hs-echap'],
+      'c': []
+    };
+
+    // Changer d'etat
+    function setState(state) {
+      currentState = state;
+      var engine = document.querySelector('#ar-engine');
+      engine.setAttribute('gltf-model', MODELS[state]);
+
+      // Mettre a jour boutons
+      document.querySelectorAll('#ar-ui .ar-btn').forEach(function(btn, i) {
+        if (i > 0 && i < 4) { // Boutons A, B, C
+          btn.classList.remove('active');
+          if (btn.textContent.includes(state.toUpperCase())) {
+            btn.classList.add('active');
+          }
+        }
+      });
+
+      // Visibilite hotspots
+      var visible = HOTSPOTS_VISIBLE[state];
+      ['hs-blower', 'hs-culasse', 'hs-echap'].forEach(function(id) {
+        var hs = document.getElementById(id);
+        if (hs) {
+          hs.setAttribute('visible', visible.indexOf(id) !== -1);
+        }
+      });
+
+      hideHotspotInfo();
+    }
+
+    // Reset rotation et zoom
+    function resetRotation() {
+      rotationX = 0;
+      rotationY = 0;
+      currentScale = 1;
+      applyTransform();
+    }
+
+    // Appliquer rotation et scale
+    function applyTransform() {
+      if (engineEntity) {
+        engineEntity.object3D.rotation.x = THREE.MathUtils.degToRad(rotationX);
+        engineEntity.object3D.rotation.y = THREE.MathUtils.degToRad(rotationY);
+        engineEntity.object3D.scale.set(currentScale, currentScale, currentScale);
+      }
+      if (hotspotsContainer) {
+        hotspotsContainer.object3D.rotation.x = THREE.MathUtils.degToRad(rotationX);
+        hotspotsContainer.object3D.rotation.y = THREE.MathUtils.degToRad(rotationY);
+        hotspotsContainer.object3D.scale.set(currentScale, currentScale, currentScale);
+      }
+    }
+
+    // Afficher info hotspot
+    function showHotspotInfo(label, desc) {
+      document.getElementById('hotspot-title').textContent = label;
+      document.getElementById('hotspot-desc').textContent = desc;
+      document.getElementById('hotspot-info').style.display = 'block';
+    }
+
+    function hideHotspotInfo() {
+      document.getElementById('hotspot-info').style.display = 'none';
+    }
+
+    // Distance entre deux touches
+    function getPinchDistance(touches) {
+      var dx = touches[0].clientX - touches[1].clientX;
+      var dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Detection hotspot par distance ecran (plus tolerant que raycasting)
+    function checkHotspotTap(touchX, touchY) {
+      var scene = document.querySelector('a-scene');
+      if (!scene || !scene.camera) return null;
+
+      var canvas = document.querySelector('canvas');
+      if (!canvas) return null;
+
+      var rect = canvas.getBoundingClientRect();
+      var hotspots = document.querySelectorAll('.ar-hotspot');
+      var closestHotspot = null;
+      var closestDistance = Infinity;
+      var tolerance = 60; // Pixels de tolerance pour le tap
+
+      hotspots.forEach(function(hs) {
+        if (!hs.object3D || hs.getAttribute('visible') === 'false') return;
+
+        // Position monde du hotspot
+        var worldPos = new THREE.Vector3();
+        hs.object3D.getWorldPosition(worldPos);
+
+        // Projeter en coordonnees ecran
+        var screenPos = worldPos.clone().project(scene.camera);
+
+        // Convertir en pixels
+        var screenX = (screenPos.x + 1) / 2 * rect.width + rect.left;
+        var screenY = (-screenPos.y + 1) / 2 * rect.height + rect.top;
+
+        // Verifier si devant la camera (z < 1)
+        if (screenPos.z > 1) return;
+
+        // Distance au point de tap
+        var dx = touchX - screenX;
+        var dy = touchY - screenY;
+        var distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < tolerance && distance < closestDistance) {
+          closestDistance = distance;
+          closestHotspot = hs;
+        }
+      });
+
+      return closestHotspot;
+    }
+
+    // Initialisation
+    document.addEventListener('DOMContentLoaded', function() {
+      engineEntity = document.getElementById('ar-engine');
+      hotspotsContainer = document.getElementById('ar-hotspots');
+
+      // Rotation tactile (1 doigt) et Zoom (2 doigts)
+      document.addEventListener('touchstart', function(e) {
+        if (e.target.closest('#ar-ui') || e.target.closest('#instructions') || e.target.closest('#hotspot-info')) return;
+
+        if (e.touches.length === 1) {
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+          isPinching = false;
+          isDragging = false;
+          dragStartTime = Date.now();
+        } else if (e.touches.length === 2) {
+          isPinching = true;
+          initialPinchDistance = getPinchDistance(e.touches);
+        }
+      });
+
+      document.addEventListener('touchmove', function(e) {
+        if (e.target.closest('#ar-ui') || e.target.closest('#instructions') || e.target.closest('#hotspot-info')) return;
+
+        if (e.touches.length === 1 && !isPinching) {
+          var deltaX = e.touches[0].clientX - touchStartX;
+          var deltaY = e.touches[0].clientY - touchStartY;
+
+          // Marquer comme drag si mouvement significatif
+          if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+            isDragging = true;
+          }
+
+          // Rotation horizontale (Y) et verticale (X) - libre 360°
+          rotationY += deltaX * 0.5;
+          rotationX += deltaY * 0.3;
+
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+          applyTransform();
+        } else if (e.touches.length === 2) {
+          // Zoom pinch
+          var currentDistance = getPinchDistance(e.touches);
+          var delta = (currentDistance - initialPinchDistance) * 0.005;
+          currentScale = Math.max(0.3, Math.min(3, currentScale + delta));
+          initialPinchDistance = currentDistance;
+          applyTransform();
+        }
+      });
+
+      document.addEventListener('touchend', function(e) {
+        if (e.touches.length < 2) {
+          isPinching = false;
+        }
+
+        // Detecter tap (court et sans mouvement)
+        if (!isDragging && Date.now() - dragStartTime < 300) {
+          var touch = e.changedTouches[0];
+          var hotspot = checkHotspotTap(touch.clientX, touch.clientY);
+
+          if (hotspot) {
+            var label = hotspot.getAttribute('data-label');
+            var desc = hotspot.getAttribute('data-desc');
+            showHotspotInfo(label, desc);
+          } else if (!e.target.closest('#hotspot-info')) {
+            hideHotspotInfo();
+          }
+        }
+
+        isDragging = false;
+      });
+
+      // Ajuster modele au chargement
+      document.querySelector('#ar-engine').addEventListener('model-loaded', function(e) {
+        var model = e.detail.model;
+        var el = this;
+
+        var minX = Infinity, minY = Infinity, minZ = Infinity;
+        var maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+        model.traverse(function(node) {
+          if (node.isMesh && node.geometry && node.geometry.attributes.position) {
+            node.updateMatrixWorld(true);
+            var posArray = node.geometry.attributes.position.array;
+            for (var i = 0; i < posArray.length; i += 3) {
+              var v = new THREE.Vector3(posArray[i], posArray[i+1], posArray[i+2]);
+              v.applyMatrix4(node.matrixWorld);
+              minX = Math.min(minX, v.x);
+              minY = Math.min(minY, v.y);
+              minZ = Math.min(minZ, v.z);
+              maxX = Math.max(maxX, v.x);
+              maxY = Math.max(maxY, v.y);
+              maxZ = Math.max(maxZ, v.z);
+            }
+            node.visible = true;
+            node.frustumCulled = false;
+          }
+        });
+
+        var maxDim = Math.max(maxX-minX, maxY-minY, maxZ-minZ);
+        var baseScale = 0.8 / maxDim;
+
+        // Appliquer scale de base au mesh interne
+        el.object3D.children[0].scale.set(baseScale, baseScale, baseScale);
+        el.object3D.children[0].position.set(
+          -(minX+maxX)/2 * baseScale,
+          -(minY+maxY)/2 * baseScale,
+          -(minZ+maxZ)/2 * baseScale
+        );
+      });
+    });
+  </script>
+</body>
+</html>

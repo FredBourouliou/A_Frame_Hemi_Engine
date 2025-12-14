@@ -1,0 +1,22 @@
+# Fichiers de test
+test*.html
+
+# Screenshots et captures
+*.png
+*.jpeg
+*.jpg
+IMG_*
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editeurs
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

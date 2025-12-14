@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Moteur Hemi V8 - Module AR A-Frame</title>
+
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+  <link rel="stylesheet" href="assets/styles/styles.css">
+</head>
+<body>
+
+  <!-- Interface HTML superposee -->
+  <div class="ui-overlay">
+
+    <header>
+      <h1>Moteur Hemi V8 - Inspection 3D</h1>
+      <p>Module pedagogique : visualisation et AR interactive</p>
+    </header>
+
+    <!-- Navigation par phases pedagogiques -->
+    <nav class="phases-nav">
+      <button class="phase-btn active" data-phase="0">
+        <span class="phase-num">0</span>Contexte
+      </button>
+      <button class="phase-btn" data-phase="1">
+        <span class="phase-num">1</span>Vue globale
+      </button>
+      <button class="phase-btn" data-phase="2">
+        <span class="phase-num">2</span>Inspection
+      </button>
+      <button class="phase-btn" data-phase="3">
+        <span class="phase-num">3</span>Structure
+      </button>
+      <button class="phase-btn" data-phase="4">
+        <span class="phase-num">4</span>Synthese
+      </button>
+    </nav>
+
+    <!-- Bandeau de consigne pedagogique -->
+    <div class="consigne-bandeau">
+      <p id="consigne-text"><strong>Contexte :</strong> Ce module presente un moteur Hemi V8 suralimente. Explorez librement le modele 3D.</p>
+    </div>
+
+    <!-- Controles d'etat -->
+    <div class="state-controls">
+      <button class="state-btn active" data-state="state_a">
+        <span class="state-label">A - Complet</span>
+        <span class="state-desc">Vue d'ensemble</span>
+      </button>
+      <button class="state-btn" data-state="state_b">
+        <span class="state-label">B - Sans blower</span>
+        <span class="state-desc">Bloc visible</span>
+      </button>
+      <button class="state-btn" data-state="state_c">
+        <span class="state-label">C - Bloc seul</span>
+        <span class="state-desc">Structure de base</span>
+      </button>
+      <a href="ar.html" class="ar-btn">📱 AR</a>
+    </div>
+
+  </div>
+
+  <!-- Overlay pour AR DOM -->
+  <div id="overlay"></div>
+
+  <!-- Scene A-Frame -->
+  <a-scene
+    embedded
+    vr-mode-ui="enabled: false"
+    renderer="colorManagement: true"
+    loading-screen="dotsColor: #e94560; backgroundColor: #1a1a2e"
+  >
+
+    <!-- Assets precharges -->
+    <a-assets timeout="60000">
+      <a-asset-item id="model-state-a" src="assets/models/hemi_state_a_full.glb"></a-asset-item>
+      <a-asset-item id="model-state-b" src="assets/models/hemi_state_b_no_blower.glb"></a-asset-item>
+      <a-asset-item id="model-state-c" src="assets/models/hemi_state_c_bloc.glb"></a-asset-item>
+    </a-assets>
+
+    <!-- Ciel -->
+    <a-sky color="#1a1a2e"></a-sky>
+
+    <!-- Sol -->
+    <a-plane
+      position="0 0 0"
+      rotation="-90 0 0"
+      width="50"
+      height="50"
+      color="#16213e"
+    ></a-plane>
+
+    <!-- Eclairage renforce -->
+    <a-light type="ambient" color="#ffffff" intensity="1"></a-light>
+    <a-light type="directional" color="#ffffff" intensity="1.5" position="5 10 5"></a-light>
+    <a-light type="point" color="#ffffff" intensity="1" position="0 3 0"></a-light>
+
+    <!-- Conteneur pour rotation manuelle -->
+    <a-entity id="engine-container" position="0 1 -3">
+      <!-- Modele 3D du moteur -->
+      <a-entity id="engine-model" gltf-model="assets/models/hemi_state_a_full.glb"></a-entity>
+
+      <!-- Hotspots dans le conteneur pour tourner avec le modele -->
+      <a-entity id="hotspots-container">
+        <a-entity id="hotspot-blower" position="0 0.5 0.3" hotspot="label: Blower; description: Compresseur volumetrique type Roots qui force l'admission d'air dans les cylindres.">
+          <a-sphere radius="0.08" color="#e94560" class="clickable" material="emissive: #e94560; emissiveIntensity: 0.3"></a-sphere>
+        </a-entity>
+        <a-entity id="hotspot-culasse-l" position="-0.4 0 0" hotspot="label: Culasse gauche; description: Chambre de combustion hemispherique permettant une meilleure circulation des gaz.">
+          <a-sphere radius="0.08" color="#e94560" class="clickable" material="emissive: #e94560; emissiveIntensity: 0.3"></a-sphere>
+        </a-entity>
+        <a-entity id="hotspot-echappement" position="0.4 -0.2 0.2" hotspot="label: Echappement; description: Collecteur d'echappement tubulaire optimise pour l'evacuation des gaz brules.">
+          <a-sphere radius="0.08" color="#ff6b00" class="clickable" material="emissive: #ff6b00; emissiveIntensity: 0.3"></a-sphere>
+        </a-entity>
+      </a-entity>
+    </a-entity>
+
+    <!-- Camera sans controles automatiques -->
+    <a-camera id="main-camera" position="0 1.5 2" look-controls="enabled:false" wasd-controls="enabled:false"
+      cursor="rayOrigin: mouse; fuse: false"
+      raycaster="objects: .clickable">
+    </a-camera>
+
+  </a-scene>
+
+  <!-- Panneau d'information hotspot -->
+  <div id="hotspot-panel" class="hotspot-panel hidden">
+    <button class="panel-close" onclick="closeHotspotPanel()">&times;</button>
+    <h3 id="panel-title">Titre</h3>
+    <p id="panel-description">Description</p>
+  </div>
+
+  <!-- Footer avec legende -->
+  <footer>
+    <div class="legende">
+      <div class="legende-item">
+        <span class="legende-color" style="background:#262626;"></span>
+        <span>Bloc moteur</span>
+      </div>
+      <div class="legende-item">
+        <span class="legende-color" style="background:#cc1a1a;"></span>
+        <span>Blower</span>
+      </div>
+      <div class="legende-item">
+        <span class="legende-color" style="background:#ff801a;"></span>
+        <span>Echappement</span>
+      </div>
+      <div class="legende-item">
+        <span class="legende-color" style="background:#1a4dcc;"></span>
+        <span>Culasse</span>
+      </div>
+    </div>
+    <p><strong>3D :</strong> Glissez pour pivoter, scroll pour zoomer. <strong>AR :</strong> Interactions maintenues en realite augmentee.</p>
+  </footer>
+
+  <!-- Application JS -->
+  <script src="assets/js/app.js"></script>
+
+</body>
+</html>
