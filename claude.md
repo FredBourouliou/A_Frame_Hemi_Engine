@@ -1,10 +1,10 @@
 # claude.md — Standard de production des modules AR pédagogiques
 ## (Inspection 3D & AR interactive — A-Frame)
 
-> **Version** : 1.0
+> **Version** : 2.0
 > **Statut** : Document de référence
 > **Scope** : Tous les modules AR / 3D d'inspection avec interactivité
-> **Stack imposée** : A-Frame + HTML/CSS/JS vanilla
+> **Stack imposée** : A-Frame + AR.js + HTML/CSS/JS vanilla
 > **Philosophie** : Préparation cognitive avec interactivité maintenue en AR
 
 ---
@@ -22,12 +22,16 @@
 8. Contrôles utilisateur (rotation, zoom)
 9. UX & scénarisation d'apprentissage
 10. AR WebXR : ce qui est possible
-11. Problèmes connus & solutions
-12. Performance & optimisation
-13. Politique de code propre
-14. Workflow standard de création
-15. Checklist avant livraison
-16. Template de démarrage rapide
+11. **AR.js : AR cross-platform avec marqueurs** ← NOUVEAU
+12. **Compatibilité navigateurs & appareils** ← NOUVEAU
+13. **Test mobile avec ngrok** ← NOUVEAU
+14. Problèmes connus & solutions
+15. Performance & optimisation
+16. Politique de code propre
+17. Workflow standard de création
+18. Checklist avant livraison
+19. Template de démarrage rapide
+20. **Template AR.js** ← NOUVEAU
 
 ---
 
@@ -448,7 +452,315 @@ var PHASES = [
 ---
 
 =====================================================================
-## 11. PROBLÈMES CONNUS & SOLUTIONS
+## 11. AR.JS : AR CROSS-PLATFORM AVEC MARQUEURS
+=====================================================================
+
+### Pourquoi AR.js ?
+
+WebXR n'est pas disponible partout :
+- iOS Safari : WebXR expérimental (désactivé par défaut)
+- Navigateurs anciens : pas de support
+
+AR.js offre une solution universelle basée sur des marqueurs.
+
+| Critère | WebXR | AR.js |
+|---------|-------|-------|
+| iOS Safari | ❌ Expérimental | ✅ Natif |
+| Android Chrome | ✅ | ✅ |
+| Marqueur requis | ❌ | ✅ |
+| Placement libre | ✅ | ❌ |
+| Interactivité | ✅ | ✅ |
+
+### Installation
+
+```html
+<!-- A-Frame PUIS AR.js -->
+<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+<script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+```
+
+### Configuration scène AR.js
+
+```html
+<a-scene
+  embedded
+  arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;"
+  renderer="logarithmicDepthBuffer: true; colorManagement: true"
+  vr-mode-ui="enabled: false"
+>
+  <a-marker preset="hiro">
+    <!-- Contenu 3D ici -->
+  </a-marker>
+  <a-entity camera></a-entity>
+</a-scene>
+```
+
+### Marqueur Hiro
+
+Le marqueur standard : https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/images/hiro.png
+
+L'utilisateur doit imprimer ou afficher ce marqueur sur un écran.
+
+### Rotation tactile en AR
+
+```javascript
+var rotationX = 0, rotationY = 0;
+var engineEntity = document.getElementById('ar-engine');
+
+document.addEventListener('touchmove', function(e) {
+  if (e.touches.length === 1) {
+    var deltaX = e.touches[0].clientX - touchStartX;
+    var deltaY = e.touches[0].clientY - touchStartY;
+
+    // Rotation libre 360°
+    rotationY += deltaX * 0.5;
+    rotationX += deltaY * 0.3;
+
+    engineEntity.object3D.rotation.x = THREE.MathUtils.degToRad(rotationX);
+    engineEntity.object3D.rotation.y = THREE.MathUtils.degToRad(rotationY);
+
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }
+});
+```
+
+### Zoom pinch en AR
+
+```javascript
+var currentScale = 1;
+
+function getPinchDistance(touches) {
+  var dx = touches[0].clientX - touches[1].clientX;
+  var dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+document.addEventListener('touchmove', function(e) {
+  if (e.touches.length === 2) {
+    var currentDistance = getPinchDistance(e.touches);
+    var delta = (currentDistance - initialPinchDistance) * 0.005;
+    currentScale = Math.max(0.3, Math.min(3, currentScale + delta));
+
+    engineEntity.object3D.scale.set(currentScale, currentScale, currentScale);
+    initialPinchDistance = currentDistance;
+  }
+});
+```
+
+### Hotspots cliquables en AR (IMPORTANT)
+
+Le raycasting classique est trop précis pour le tactile. Utiliser la **détection par distance écran** :
+
+```javascript
+function checkHotspotTap(touchX, touchY) {
+  var scene = document.querySelector('a-scene');
+  if (!scene || !scene.camera) return null;
+
+  var canvas = document.querySelector('canvas');
+  var rect = canvas.getBoundingClientRect();
+  var tolerance = 60; // Pixels de tolérance
+
+  var closestHotspot = null;
+  var closestDistance = Infinity;
+
+  document.querySelectorAll('.ar-hotspot').forEach(function(hs) {
+    if (!hs.object3D || hs.getAttribute('visible') === 'false') return;
+
+    // Position monde → écran
+    var worldPos = new THREE.Vector3();
+    hs.object3D.getWorldPosition(worldPos);
+    var screenPos = worldPos.clone().project(scene.camera);
+
+    var screenX = (screenPos.x + 1) / 2 * rect.width + rect.left;
+    var screenY = (-screenPos.y + 1) / 2 * rect.height + rect.top;
+
+    // Ignorer si derrière la caméra
+    if (screenPos.z > 1) return;
+
+    var dx = touchX - screenX;
+    var dy = touchY - screenY;
+    var distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < tolerance && distance < closestDistance) {
+      closestDistance = distance;
+      closestHotspot = hs;
+    }
+  });
+
+  return closestHotspot;
+}
+```
+
+### Distinguer tap et drag en AR
+
+```javascript
+var isDragging = false;
+var dragStartTime = 0;
+
+document.addEventListener('touchstart', function(e) {
+  isDragging = false;
+  dragStartTime = Date.now();
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+});
+
+document.addEventListener('touchmove', function(e) {
+  var deltaX = e.touches[0].clientX - touchStartX;
+  var deltaY = e.touches[0].clientY - touchStartY;
+
+  if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+    isDragging = true;
+  }
+});
+
+document.addEventListener('touchend', function(e) {
+  // Tap = court et sans mouvement
+  if (!isDragging && Date.now() - dragStartTime < 300) {
+    var touch = e.changedTouches[0];
+    var hotspot = checkHotspotTap(touch.clientX, touch.clientY);
+    if (hotspot) {
+      // Afficher info hotspot
+    }
+  }
+});
+```
+
+---
+
+=====================================================================
+## 12. COMPATIBILITÉ NAVIGATEURS & APPAREILS
+=====================================================================
+
+### Tableau de compatibilité
+
+| Navigateur | 3D Viewer | AR.js | WebXR |
+|------------|-----------|-------|-------|
+| Chrome Desktop | ✅ | N/A | ❌ |
+| Firefox Desktop | ✅ | N/A | ❌ |
+| Safari Desktop | ✅ | N/A | ❌ |
+| Chrome Android | ✅ | ✅ | ✅ |
+| Firefox Android | ✅ | ✅ | ⚠️ |
+| Safari iOS | ✅ | ✅ | ❌ |
+| Chrome iOS | ✅ | ✅ | ❌ |
+| **Samsung Internet** | ⚠️ | ❌ | ❌ |
+
+### ⚠️ Samsung Internet : NON SUPPORTÉ
+
+Samsung Internet a des problèmes majeurs avec WebGL et AR.js :
+- UI HTML peut être masquée par le canvas
+- Comportements imprévisibles
+
+**Recommandation** : Ajouter un message invitant à utiliser Chrome ou Firefox.
+
+### Fix CSS obligatoire pour Android
+
+Le canvas WebGL peut masquer les éléments HTML. Solution :
+
+```css
+/* Force les éléments UI au-dessus du canvas AR */
+#ar-ui, #instructions, #hotspot-info {
+  position: fixed !important;
+  z-index: 999999 !important;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  pointer-events: auto !important;
+}
+
+/* Force le canvas en arrière-plan */
+a-scene, .a-canvas {
+  z-index: 0 !important;
+}
+```
+
+### Safe areas (écrans avec encoche)
+
+```css
+#ar-ui {
+  padding-top: max(10px, env(safe-area-inset-top));
+}
+
+#instructions {
+  bottom: max(20px, env(safe-area-inset-bottom));
+}
+```
+
+### Optimisations tactiles
+
+```css
+.ar-btn {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+```
+
+---
+
+=====================================================================
+## 13. TEST MOBILE AVEC NGROK
+=====================================================================
+
+### Pourquoi ngrok ?
+
+L'accès caméra (AR) nécessite HTTPS. En développement local :
+- `localhost` fonctionne sur desktop
+- Les mobiles ne peuvent pas accéder à `localhost`
+- HTTP simple = caméra refusée
+
+**ngrok** crée un tunnel HTTPS public vers votre serveur local.
+
+### Installation
+
+```bash
+# macOS
+brew install ngrok
+
+# Ou télécharger sur https://ngrok.com/download
+```
+
+### Utilisation
+
+```bash
+# Terminal 1 : serveur local
+cd projet/
+python3 -m http.server 8080
+
+# Terminal 2 : tunnel ngrok
+ngrok http 8080
+```
+
+ngrok affiche une URL du type : `https://abc123def456.ngrok-free.app`
+
+### Tester sur mobile
+
+1. Ouvrir l'URL ngrok sur le mobile
+2. Accepter l'avertissement ngrok (gratuit)
+3. Autoriser l'accès caméra
+4. Pointer vers le marqueur Hiro
+
+### Obtenir l'URL ngrok programmatiquement
+
+```bash
+curl -s http://127.0.0.1:4040/api/tunnels | python3 -c \
+  "import sys,json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])"
+```
+
+### Limites ngrok gratuit
+
+- URL change à chaque redémarrage
+- Page d'avertissement au premier accès
+- Limite de connexions simultanées
+
+### Alternative production
+
+Pour la production, utiliser :
+- **GitHub Pages** (gratuit, HTTPS automatique)
+- **Netlify** ou **Vercel** (gratuit, déploiement auto)
+
+---
+
+=====================================================================
+## 14. PROBLÈMES CONNUS & SOLUTIONS
 =====================================================================
 
 ### BoundingBox retourne 0x0x0
@@ -675,4 +987,267 @@ python3 -m http.server 8080
 
 ---
 
-**Fin du document — claude.md (AR / A-Frame) v1.0**
+=====================================================================
+## 20. TEMPLATE AR.JS
+=====================================================================
+
+### ar.html (page AR complète)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Module AR</title>
+
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    body { margin: 0; overflow: hidden; font-family: -apple-system, sans-serif; }
+
+    /* Fix Android : UI au-dessus du canvas */
+    #ar-ui, #instructions, #hotspot-info {
+      position: fixed !important;
+      z-index: 999999 !important;
+      -webkit-transform: translateZ(0);
+      transform: translateZ(0);
+      pointer-events: auto !important;
+    }
+
+    #ar-ui {
+      top: 0; left: 0; right: 0;
+      padding: 10px;
+      padding-top: max(10px, env(safe-area-inset-top));
+      display: flex; flex-wrap: wrap; gap: 8px;
+      justify-content: center;
+      background: rgba(0,0,0,0.7);
+    }
+
+    .ar-btn {
+      padding: 10px 16px;
+      background: rgba(233, 69, 96, 0.95);
+      color: white; border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 600;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    .ar-btn.active { background: #4CAF50; }
+
+    #instructions {
+      bottom: max(20px, env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%) translateZ(0);
+      padding: 12px 20px;
+      background: rgba(0,0,0,0.85);
+      color: white; border-radius: 10px;
+      font-size: 13px; text-align: center;
+    }
+
+    #hotspot-info {
+      bottom: 80px; left: 50%;
+      transform: translateX(-50%) translateZ(0);
+      padding: 15px 20px;
+      background: rgba(22,33,62,0.98);
+      color: white; border-radius: 10px;
+      display: none;
+      border: 1px solid #e94560;
+    }
+
+    a-scene, .a-canvas { z-index: 0 !important; }
+    .a-enter-vr { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="ar-ui">
+    <a href="index.html" class="ar-btn">← Retour</a>
+    <button class="ar-btn active" onclick="setState('a')">A - Complet</button>
+    <button class="ar-btn" onclick="setState('b')">B - État 2</button>
+    <button class="ar-btn" onclick="resetTransform()">⟲ Reset</button>
+  </div>
+
+  <div id="instructions">
+    Pointez vers le marqueur Hiro<br>
+    <small>Glisser : rotation | Pincer : zoom</small>
+  </div>
+
+  <div id="hotspot-info">
+    <h4 id="hotspot-title"></h4>
+    <p id="hotspot-desc"></p>
+  </div>
+
+  <a-scene
+    embedded
+    arjs="sourceType: webcam; debugUIEnabled: false;"
+    renderer="logarithmicDepthBuffer: true; colorManagement: true"
+    vr-mode-ui="enabled: false"
+  >
+    <a-light type="ambient" color="#fff" intensity="1.2"></a-light>
+    <a-light type="directional" color="#fff" intensity="0.8" position="1 1 1"></a-light>
+
+    <a-marker preset="hiro">
+      <a-entity id="ar-model" gltf-model="assets/models/model_state_a.glb"></a-entity>
+
+      <a-entity id="ar-hotspots">
+        <a-sphere class="ar-hotspot" position="0 0.5 0" radius="0.06"
+          color="#e94560" material="emissive: #e94560; emissiveIntensity: 0.5"
+          data-label="Composant" data-desc="Description du composant.">
+        </a-sphere>
+      </a-entity>
+    </a-marker>
+
+    <a-entity camera></a-entity>
+  </a-scene>
+
+  <script>
+    // Variables globales
+    var rotationX = 0, rotationY = 0, currentScale = 1;
+    var modelEntity, hotspotsContainer;
+    var touchStartX = 0, touchStartY = 0;
+    var initialPinchDistance = 0, isPinching = false;
+    var isDragging = false, dragStartTime = 0;
+
+    var MODELS = {
+      'a': 'assets/models/model_state_a.glb',
+      'b': 'assets/models/model_state_b.glb'
+    };
+
+    // Changement d'état
+    function setState(state) {
+      modelEntity.setAttribute('gltf-model', MODELS[state]);
+      document.querySelectorAll('#ar-ui .ar-btn').forEach(function(btn, i) {
+        btn.classList.toggle('active', btn.textContent.includes(state.toUpperCase()));
+      });
+    }
+
+    // Reset
+    function resetTransform() {
+      rotationX = 0; rotationY = 0; currentScale = 1;
+      applyTransform();
+    }
+
+    // Appliquer transformation
+    function applyTransform() {
+      if (modelEntity) {
+        modelEntity.object3D.rotation.x = THREE.MathUtils.degToRad(rotationX);
+        modelEntity.object3D.rotation.y = THREE.MathUtils.degToRad(rotationY);
+        modelEntity.object3D.scale.set(currentScale, currentScale, currentScale);
+      }
+      if (hotspotsContainer) {
+        hotspotsContainer.object3D.rotation.x = THREE.MathUtils.degToRad(rotationX);
+        hotspotsContainer.object3D.rotation.y = THREE.MathUtils.degToRad(rotationY);
+        hotspotsContainer.object3D.scale.set(currentScale, currentScale, currentScale);
+      }
+    }
+
+    // Distance pinch
+    function getPinchDistance(touches) {
+      var dx = touches[0].clientX - touches[1].clientX;
+      var dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Détection hotspot par distance écran
+    function checkHotspotTap(touchX, touchY) {
+      var scene = document.querySelector('a-scene');
+      if (!scene || !scene.camera) return null;
+
+      var canvas = document.querySelector('canvas');
+      var rect = canvas.getBoundingClientRect();
+      var tolerance = 60;
+
+      var closest = null, closestDist = Infinity;
+
+      document.querySelectorAll('.ar-hotspot').forEach(function(hs) {
+        if (!hs.object3D) return;
+
+        var worldPos = new THREE.Vector3();
+        hs.object3D.getWorldPosition(worldPos);
+        var screenPos = worldPos.clone().project(scene.camera);
+
+        if (screenPos.z > 1) return;
+
+        var screenX = (screenPos.x + 1) / 2 * rect.width + rect.left;
+        var screenY = (-screenPos.y + 1) / 2 * rect.height + rect.top;
+        var dist = Math.sqrt(Math.pow(touchX - screenX, 2) + Math.pow(touchY - screenY, 2));
+
+        if (dist < tolerance && dist < closestDist) {
+          closestDist = dist;
+          closest = hs;
+        }
+      });
+
+      return closest;
+    }
+
+    // Init
+    document.addEventListener('DOMContentLoaded', function() {
+      modelEntity = document.getElementById('ar-model');
+      hotspotsContainer = document.getElementById('ar-hotspots');
+
+      // Touch handlers
+      document.addEventListener('touchstart', function(e) {
+        if (e.target.closest('#ar-ui, #instructions, #hotspot-info')) return;
+
+        if (e.touches.length === 1) {
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+          isPinching = false; isDragging = false;
+          dragStartTime = Date.now();
+        } else if (e.touches.length === 2) {
+          isPinching = true;
+          initialPinchDistance = getPinchDistance(e.touches);
+        }
+      });
+
+      document.addEventListener('touchmove', function(e) {
+        if (e.target.closest('#ar-ui, #instructions, #hotspot-info')) return;
+
+        if (e.touches.length === 1 && !isPinching) {
+          var deltaX = e.touches[0].clientX - touchStartX;
+          var deltaY = e.touches[0].clientY - touchStartY;
+
+          if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) isDragging = true;
+
+          rotationY += deltaX * 0.5;
+          rotationX += deltaY * 0.3;
+
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+          applyTransform();
+        } else if (e.touches.length === 2) {
+          var dist = getPinchDistance(e.touches);
+          var delta = (dist - initialPinchDistance) * 0.005;
+          currentScale = Math.max(0.3, Math.min(3, currentScale + delta));
+          initialPinchDistance = dist;
+          applyTransform();
+        }
+      });
+
+      document.addEventListener('touchend', function(e) {
+        if (e.touches.length < 2) isPinching = false;
+
+        if (!isDragging && Date.now() - dragStartTime < 300) {
+          var touch = e.changedTouches[0];
+          var hs = checkHotspotTap(touch.clientX, touch.clientY);
+
+          if (hs) {
+            document.getElementById('hotspot-title').textContent = hs.getAttribute('data-label');
+            document.getElementById('hotspot-desc').textContent = hs.getAttribute('data-desc');
+            document.getElementById('hotspot-info').style.display = 'block';
+          } else if (!e.target.closest('#hotspot-info')) {
+            document.getElementById('hotspot-info').style.display = 'none';
+          }
+        }
+        isDragging = false;
+      });
+    });
+  </script>
+</body>
+</html>
+```
+
+---
+
+**Fin du document — claude.md (AR / A-Frame) v2.0**
